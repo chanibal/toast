@@ -1,0 +1,29 @@
+#!/bin/bash
+
+subject="$*"
+
+
+body="";
+while read -t1 input
+do
+	body="$(echo -e "$body\n$input")"
+done < /dev/stdin
+
+echo BODY="$body"
+
+echo "Toast..."
+if [[ $(uname) =~ CYGWIN ]]; then
+
+	powershell -noprofile -noninteractive -command '$input | iex' <<END
+		[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
+		[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > \$null
+		[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
+		\$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+		\$template = "<toast><visual><binding template=\`"ToastText02\`"><text id=\`"1\`">$subject</text><text id=\`"2\`">$(sed ':a;N;$!ba;s/\n/ /g' <<< $body)</text></binding></visual></toast>"
+		\$xml.LoadXml(\$template)
+		\$toast = New-Object Windows.UI.Notifications.ToastNotification \$xml
+		[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Toast").Show(\$toast)
+END
+else
+	echo "unknown platform: $(uname)"
+fi
