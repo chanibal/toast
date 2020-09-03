@@ -1,29 +1,63 @@
 #!/bin/bash
 
+# TODO: usage help
+# TODO: re-add MacOS support: https://apple.stackexchange.com/questions/57412
+# TODO: warn/trim too long toast
+# TODO: clickable toasts?
+# TODO: additional, configurable outputs? mqtt, mail?
+# TODO: plain powershell version? how to deal with non-windows powershell?
+# TODO: linux version supporting notify-send and zenity?
+
+set -E
+
+function log {
+	printf "\e[102;30m%s\e\033[K\e[0m\n" "$@"
+}
+
+function warn {
+	printf "\e[101;30m%s\e\033[K\e[0m\n" "$@"
+}
+
+
+# Toast subject is all arguments passed to it
 subject="$*"
+log "Subject: $subject"
 
-
+# Body is read only if this is not an interactive terminal
+# Optional body is everything passed through stdin
 body="";
-while read -t1 input
-do
-	body="$(echo -e "$body\n$input")"
-done < /dev/stdin
-
-echo BODY="$body"
-
-echo "Toast..."
-if [[ $(uname) =~ CYGWIN ]]; then
-
-	powershell -noprofile -noninteractive -command '$input | iex' <<END
-		[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
-		[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > \$null
-		[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > \$null
-		\$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-		\$template = "<toast><visual><binding template=\`"ToastText02\`"><text id=\`"1\`">$subject</text><text id=\`"2\`">$(sed ':a;N;$!ba;s/\n/ /g' <<< $body)</text></binding></visual></toast>"
-		\$xml.LoadXml(\$template)
-		\$toast = New-Object Windows.UI.Notifications.ToastNotification \$xml
-		[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Toast").Show(\$toast)
-END
+if [[ -t 0 ]]; then
+	warn "Not asking for stdin when on interactive terminal"
 else
-	echo "unknown platform: $(uname)"
+	log "Reading body..."
+	body="$(< /dev/stdin)"
+	log "Body: $body"
+fi
+
+
+# Cygwin, WSL, MSYS or another bash on Windows
+# note: max 4 lines of input are used
+if which powershell.exe>/dev/null; then
+	function ps1escape {
+		# warning: gnu sed only?
+
+		sed ':a; N; $!ba; s/\([$#"`]\)/`\1/g; s/\n/`r`n/g;' <<< $1
+		#    \----+----/  |                  |
+		#         |       |                  +-- escape newline as `n
+		#         |       +--------------------- escape #, " as ` characters. Note, does not escape single quote ('), because this function should not be used in single quote strings
+		#         +----------------------------- newline replacement utility, see https://stackoverflow.com/a/1252191/785171
+	}
+	# Toast types in windows 10: https://docs.microsoft.com/en-us/uwp/api/windows.ui.notifications.toasttemplatetype
+	powershell.exe -noprofile -noninteractive -command "\$subject = \"$(ps1escape "$subject")\"; \$body = \"$(ps1escape "$body")\"; \$input | iex" <<-'END'
+		[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+		[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
+		[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+		$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+		$template = "<toast><visual><binding template=`"ToastText02`"><text id=`"1`">$subject</text><text id=`"2`">$body</text></binding></visual></toast>"
+		$xml.LoadXml($template)
+		$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+		[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Toast").Show($toast)
+	END
+else
+	warn "Unknown platform: $(uname)"
 fi
