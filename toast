@@ -1,17 +1,11 @@
 #!/bin/bash
 
-# TODO: usage help
-# TODO: re-add MacOS support: https://apple.stackexchange.com/questions/57412
-# TODO: warn/trim too long toast
-# TODO: clickable toasts?
-# TODO: additional, configurable outputs? mqtt, mail?
-# TODO: plain powershell version? how to deal with non-windows powershell?
-# TODO: linux version supporting notify-send and zenity?
-
 set -E
 
 function log {
-	printf "\e[102;30m%s\e\033[K\e[0m\n" "$@"
+	:
+	# debug disabled
+	# printf "\e[102;30m%s\e\033[K\e[0m\n" "$@"
 }
 
 function warn {
