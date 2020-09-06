@@ -46,6 +46,8 @@ if which powershell.exe>/dev/null; then
 		[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 		[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
 		[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+		$subject = [Security.SecurityElement]::Escape($subject)
+		$body = [Security.SecurityElement]::Escape($body)
 		$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 		$template = "<toast><visual><binding template=`"ToastText02`"><text id=`"1`">$subject</text><text id=`"2`">$body</text></binding></visual></toast>"
 		$xml.LoadXml($template)

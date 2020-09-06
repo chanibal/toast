@@ -1,4 +1,7 @@
 param ([string] $Subject, [string] $Body = $null)
+$subject = [Security.SecurityElement]::Escape($subject)
+$body = [Security.SecurityElement]::Escape($body)
+
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
 [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
