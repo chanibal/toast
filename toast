@@ -1,14 +1,14 @@
 #!/bin/bash
 
-set -E
-
-function log {
+log ()
+{
 	:
 	# debug disabled
 	# printf "\e[102;30m%s\e\033[K\e[0m\n" "$@"
 }
 
-function warn {
+warn ()
+{
 	printf "\e[101;30m%s\e\033[K\e[0m\n" "$@"
 }
 
@@ -28,32 +28,122 @@ else
 	log "Body: $body"
 fi
 
+# Client name (currently hostname, TODO configuration)
+client="$(hostname)"
 
-# Cygwin, WSL, MSYS or another bash on Windows
-# note: max 4 lines of input are used
-if which powershell.exe>/dev/null; then
-	function ps1escape {
-		# warning: gnu sed only?
 
-		sed ':a; N; $!ba; s/\([$#"`]\)/`\1/g; s/\n/`r`n/g;' <<< $1
-		#    \----+----/  |                  |
-		#         |       |                  +-- escape newline as `n
-		#         |       +--------------------- escape #, " as ` characters. Note, does not escape single quote ('), because this function should not be used in single quote strings
-		#         +----------------------------- newline replacement utility, see https://stackoverflow.com/a/1252191/785171
-	}
-	# Toast types in windows 10: https://docs.microsoft.com/en-us/uwp/api/windows.ui.notifications.toasttemplatetype
-	powershell.exe -noprofile -noninteractive -command "\$subject = \"$(ps1escape "$subject")\"; \$body = \"$(ps1escape "$body")\"; \$input | iex" <<-'END'
-		[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-		[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
-		[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-		$subject = [Security.SecurityElement]::Escape($subject)
-		$body = [Security.SecurityElement]::Escape($body)
-		$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-		$template = "<toast><visual><binding template=`"ToastText02`"><text id=`"1`">$subject</text><text id=`"2`">$body</text></binding></visual></toast>"
-		$xml.LoadXml($template)
-		$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
-		[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Toast").Show($toast)
-	END
+
+# Utilities for plugins
+
+jsonescape () 
+{
+	# modified from https://stackoverflow.com/a/11495576/785171 
+	j="$1"
+	j=${j//\\/\\\\}    # \ 
+	j=${j//\//\\\/}    # / 
+	j=${j//\'/\\\'}    # ' (not strictly needed ?)
+	j=${j//\"/\\\"}    # " 
+	j=${j//$'\t'/\\\t} # \t (tab)
+	j=${j//$'\n'/\\\n} # \n (newline)
+	j=${j//$'\r'/\\\r} # \r (carriage return)
+	j=${j//$'\f'/\\\f} # \f (form feed)
+	j=${j//$'\b'/\\\b} # \b (backspace)
+	echo "$j"
+}
+
+ps1escape () 
+{
+	# warning: gnu sed only?
+
+	# TODO: replace with pure bash
+
+	sed ':a; N; $!ba; s/\([$#"`]\)/`\1/g; s/\n/`r`n/g;' <<< $1
+	#    \----+----/  |                  |
+	#         |       |                  +-- escape newline as `n
+	#         |       +--------------------- escape #, " as ` characters. Note, does not escape single quote ('), because this function should not be used in single quote strings
+	#         +----------------------------- newline replacement utility, see https://stackoverflow.com/a/1252191/785171
+}
+
+
+# Builtin plugin notification
+
+# Pops up a Windows 8/10 tray notification in the corner of your screen. 
+plugin_toast_windows_notification () 
+{
+	local subject body client
+	subject="$1"
+	body="$2"
+	client="$3" # ignored, this is local
+
+	# Cygwin, WSL, MSYS or another bash on Windows
+	# note: max 4 lines of input are used
+	if which powershell.exe>/dev/null; then
+		# Toast types in windows 10: https://docs.microsoft.com/en-us/uwp/api/windows.ui.notifications.toasttemplatetype
+		powershell.exe -noprofile -noninteractive -command "\$subject = \"$(ps1escape "$subject")\"; \$body = \"$(ps1escape "$body")\"; \$input | iex" <<-'END'
+			[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+			[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
+			[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+			$subject = [Security.SecurityElement]::Escape($subject)
+			$body = [Security.SecurityElement]::Escape($body)
+			$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+			$template = "<toast><visual><binding template=`"ToastText02`"><text id=`"1`">$subject</text><text id=`"2`">$body</text></binding></visual></toast>"
+			$xml.LoadXml($template)
+			$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+			[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Toast").Show($toast)
+		END
+		return $?
+	fi
+
+	warn "Unsupported platform: $(uname)"
+	return 1
+}
+
+
+# Builtin plugin IFTTT maker webhook
+# Requires PLUGIN_TOAST_IFTTT_KEY defined in config file
+# Supports PLUGIN_TOAST_IFTTT_EVENT with default "notification"
+plugin_toast_ifttt ()
+{
+	local subject body client
+	subject="$1"
+	body="$2"
+	client="$3"
+
+	if [[ "$PLUGIN_TOAST_IFTTT_KEY" == "" ]]; then
+		log "No IFTTT key registered"
+		return 1
+	fi
+
+	curl --silent --output /dev/null --show-error --fail -X POST \
+		-H "Content-Type: application/json" -d \
+		"{\"value1\":\"$(jsonescape "$subject")\",\"value2\":\"$(jsonescape "$body")\",\"value3\":\"$(jsonescape "$client")\"}" \
+		"https://maker.ifttt.com/trigger/${PLUGIN_TOAST_IFTTT_EVENT:-notification}/with/key/${PLUGIN_TOAST_IFTTT_KEY}"
+	
+	return $?
+}
+
+
+# End of builtin plugins
+
+
+# Load configuration from XDG
+TOAST_CONFIG_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/.toast"
+if [[ -f "$TOAST_CONFIG_FILE" ]]; then
+	source "$TOAST_CONFIG_FILE"
+	log "Loaded config file $TOAST_CONFIG_FILE"
 else
-	warn "Unknown platform: $(uname)"
+	log "Could not load config file $TOAST_CONFIG_FILE"
 fi
+
+# Execute plugins
+# TODO: replace with list from configuration ($PLUGIN_TOAST ?), if available
+declare -F | (
+	while read _1 _2 name; do 
+		log "Plugin to consider: $name"
+		if [[ "$name" =~ plugin_toast_ ]]; then
+			log "Run plugin $name"
+			"$name" "$subject" "$body" "$client"
+			if [[ $? == 0 ]]; then log "Success"; else warn "Failed to run $name"; fi
+		fi; 
+	done
+)
